@@ -1,0 +1,689 @@
+---
+title: "Comparaison patinoire"
+author: "Adrien"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+package
+```{r}
+library(readxl)
+library(lme4)
+library(tidyr)
+library(dplyr)
+library(tibble)
+```
+
+#### Preparation des donnees ISU
+
+import jeux de donnees
+```{r, warning = FALSE}
+isu_2015_season <- read_excel("./comparaison_patinoire/isu_2015_season.xlsx")
+isu_2016_season <- read_excel("./comparaison_patinoire/isu_2016_season.xlsx")
+isu_2017_season <- read_excel("./comparaison_patinoire/isu_2017_season.xlsx")
+isu_2018_season <- read_excel("./comparaison_patinoire/isu_2018_season.xlsx")
+isu_2019_season <- read_excel("./comparaison_patinoire/isu_2019_season.xlsx")
+isu_2020_season <- read_excel("./comparaison_patinoire/isu_2020_season.xlsx")
+isu_2021_season <- read_excel("./comparaison_patinoire/isu_2021_season.xlsx")
+isu_2022_season <- read_excel("./comparaison_patinoire/isu_2022_season.xlsx")
+isu_2023_season <- read_excel("./comparaison_patinoire/isu_2023_season.xlsx")
+isu_2024_season <- read_excel("./comparaison_patinoire/isu_2024_season.xlsx")
+isu_2025_season <- read_excel("./comparaison_patinoire/isu_2025_season.xlsx")
+isu_2026_season <- read_excel("./comparaison_patinoire/isu_2026_season.xlsx")
+```
+
+joindre jeux de donnees
+```{r}
+isu_donnees <- rbind(isu_2015_season, isu_2016_season, isu_2017_season, isu_2018_season, isu_2019_season, isu_2020_season,
+                     isu_2021_season, isu_2022_season, isu_2023_season,isu_2024_season, isu_2025_season, isu_2026_season)
+```
+
+
+```{r}
+unique(isu_donnees$Location)
+```
+#### Fonction modele mixte pour comparaison de la patinoire
+
+Model mixte pour comparer le temps des patinoires.
+J'utilise comme effet aleatoire la patinoire et les patineurs.
+Aucun effet fixe.
+J'ai utilise les competitions ISU seulement car je considere que les competitions et l'effort sont de niveau comparable.
+Le ranef produit le tableau des differences de la moyenne.
+Le coef produit le tableau des differences + la moyenne.
+```{r}
+modele_mixte <- function(distance, gender_val, dataset){
+  
+Data <- dataset %>% filter(Distance == distance, Gender == gender_val)
+  
+fit_mixed <- lmer(Time ~ 1 + (1 | Name) + (1 | Location), data = Data)
+
+print(ranef(fit_mixed)$Location)
+print(coef(fit_mixed)$Location)
+print(summary(fit_mixed))
+}
+```
+
+```{r}
+modele_mixte("500m", "Men", isu_donnees)
+```
+
+```{r}
+modele_mixte("1000m", "Men", isu_donnees)
+```
+
+```{r}
+modele_mixte("1500m", "Men", isu_donnees)
+```
+
+```{r}
+modele_mixte("5000m", "Men", isu_donnees)
+```
+
+```{r}
+modele_mixte("10000m", "Men", isu_donnees)
+```
+
+```{r}
+modele_mixte("500m", "Women", isu_donnees)
+```
+
+```{r}
+modele_mixte("1000m", "Women", isu_donnees)
+```
+
+```{r}
+modele_mixte("1500m", "Women", isu_donnees)
+```
+
+```{r}
+modele_mixte("3000m", "Women", isu_donnees)
+```
+
+```{r}
+modele_mixte("5000m", "Women", isu_donnees)
+```
+
+Code pour identifier les patineurs des competitions ISU, ensuite faire le moissonnage specifique a ces patineurs.
+```{r}
+
+isu_donnees <- isu_donnees %>% filter(!Distance %in% c("Mass Start", "Team Pursuit", "Unknown"))
+
+skaters_df <- isu_donnees %>%
+  distinct(Name, Country, Gender) %>%
+  mutate(Sex = recode(Gender, Men = "Men", Women = "Women", .default = Gender)) %>%
+  select(Name, Country, Sex) %>%
+  arrange(Name)
+
+write.csv(skaters_df, "skaters_input.csv", row.names = FALSE, fileEncoding = "UTF-8")
+```
+
+#### Preparation des donnees complete
+Pour la prediction, j'utilise les donnees de skating results, pour avoir le plus d'information possible.
+J'ai fait le moissonnage et ajouter la pression de l'air pour chaque competition possible.
+
+```{r}
+donnees1 <- read_excel("./comparaison_patinoire/skating_results_with_geo_pressure_and_gender1.xlsx")
+donnees2 <- read_excel("./comparaison_patinoire/pythonProject333_2/skating_results_with_geo_pressure_and_gender2.xlsx")
+
+donnees <- rbind(donnees1, donnees2)
+
+# fonction pour transformer le temps en secondes.
+time_to_seconds <- function(x) {
+  x <- trimws(as.character(x))                                                  # trimws: trim les white space
+  temps <- rep(NA_real_, length(x))
+  
+  for (i in seq_along(x)) {
+    val <- x[i]
+    
+    if (grepl(",", val)) {                                                      # grepl: cherche un pattern, retourne un bool
+      # ----- Cas 1 : minutes + secondes, ex. "1.16,29" -----
+      if (grepl("\\.", val)) {
+        parts <- strsplit(val, "\\.")[[1]]              # "1.16,29" -> c("1", "16,29")
+        
+        mins <- as.numeric(parts[1])  # "1"   -> 1
+        secs <- as.numeric(sub(",", ".", parts[2], fixed = TRUE))
+        if (!is.na(mins) && !is.na(secs)) {
+          temps[i] <- mins * 60 + secs                    # 1*60 + 16.29 = 76.29
+        }
+        
+      # ----- Cas 2 : seulement des secondes, ex. "40,40" -----
+      } else {
+        secs <- as.numeric(sub(",", ".", val, fixed = TRUE))              # "40,40" -> "40.40" -> 40.40
+        if (!is.na(secs)) {
+          temps[i] <- secs
+        }
+      }
+      
+    } 
+  }
+  
+  return(temps)
+}
+
+# Fonction pour ajouter la saison
+add_season <- function(df, date_col = "date", season_col = "season") {
+  # Copy pour pas changer le dataframe
+  out <- df
+  
+  dates <- out[[date_col]]
+  
+  # Extrait le mois et l'année et transforme en entier
+  year  <- as.integer(format(dates, "%Y"))
+  month <- as.integer(format(dates, "%m"))
+  
+  # La saison commence en juillet
+  #   si le mois >= 7 -> Saison de cette année
+  #   si le mois < 7  -> Saison de l'année passée
+  season_start <- ifelse(month >= 7, year, year - 1L)                           #1L permet de garder le type en entier
+  
+  # 1. creer le label (e.g. "2018-2019")
+  season_label <- paste0(season_start, "-", season_start + 1L)
+  out[[season_col]] <- season_label
+  
+  # 2. Stock la saison
+  out$season_num <- season_start
+  
+  # 3. Creer un indice
+  out$season_idx <- out$season_num - min(out$season_num, na.rm = TRUE)
+  
+  return(out)
+}
+
+donnees$time <- time_to_seconds(donnees$time)
+donnees <- add_season(donnees)
+```
+
+#### Fonction pour predire le temps des patineurs
+Fonction pour predire le temps des patineurs au prochain olympics selon les performances passees.
+Fonction prends le dataset, l'endroit la pression de l'air estime, et output les 50 meilleurs patineurs
+
+```{r}
+Predict_Future_Olympics <- function(dist, gend, dataset, 
+                                    venue_name = "Milan (ITA)", 
+                                    pressure_assumption = 1013, 
+                                    top_n_skaters = 50,
+                                    pi_level = 0.95,
+                                    n_sims = 20000) {
+
+  
+  # ---------------------------------
+  # 1. Prepare le data d'entrainement
+  # ---------------------------------
+  train_data <- dataset %>%
+    filter(distance == dist, gender == gend, !is.na(pressure_hpa), !is.na(time)) %>%
+    filter(abs(time - mean(time, na.rm = TRUE)) <= 1.5 * sd(time, na.rm = TRUE)) %>%
+    mutate(
+      skater_name = factor(skater_name),
+      location    = factor(location),
+      date        = as.Date(date),
+      days_diff   = as.numeric(Sys.Date() - date)
+    )
+  
+  # -------------------------------------------------------
+  # 2. Identifier les patineurs  avec competitions recentes
+  # -------------------------------------------------------
+  
+  latest_season <- max(train_data$season_num, na.rm = TRUE)
+  
+  recent_form <- train_data %>%
+    filter(season_num == latest_season) %>%
+    group_by(skater_name) %>%
+    summarise(
+      mean_time = mean(time, na.rm = TRUE), 
+      country = first(country), 
+      .groups = "drop"
+    ) %>%
+    arrange(mean_time) %>%
+    slice_head(n = top_n_skaters)
+  
+  # -------------------------------------------------
+  # 3. Construire le tableau des patineurs potentiels
+  # -------------------------------------------------
+  future_race <- data.frame(
+    skater_name  = recent_form$skater_name,
+    country      = recent_form$country, 
+    location     = factor(venue_name),
+    pressure_hpa = pressure_assumption,
+    days_diff    = 0
+  )
+  
+  # ---------------------------------------------------------------
+  # 4. Modele mixte avec un poids par rapport recence de la course
+  # ---------------------------------------------------------------
+  
+  # ---------------------------------------------------------------------------------------------------------------------------
+  # La fonction cherche un k, un certain taux de decroissance.
+  # Petit k, longue memoire, grand k, courte memoire.
+  # La fonction test chaque k, et prend celui qui minimise sigma.
+  # Le modele mixte est le meme que pour la comparaison des patinoires, mais l'effet fixe pression de l'air est ajouter.
+  # ---------------------------------------------------------------------------------------------------------------------------
+  
+  
+  best_model <- NULL
+  min_sigma <- Inf
+  
+  rate_grid <- seq(0.0005, 0.02, length.out = 50)
+  recency_w <- function(k, d) {2 / (1 + exp(k * d))}
+  
+  for (k in rate_grid) {
+    training <- train_data %>% mutate(w = recency_w(k, days_diff))
+    
+    m <- lmer(
+      time ~ pressure_hpa + (1 | skater_name) + (1 | location),
+      data = training, weights = w, REML = TRUE,
+      control = lmerControl(optimizer = "bobyqa")
+    )
+    
+    s <- sigma(m)
+    
+    if (is.finite(s) && s < min_sigma) {
+      min_sigma <- s
+      best_model <- m
+      best_k <- k
+    }
+  }
+  
+  # --------------------------------------------------
+  # 5. Predit la valeur moyenne de la prochaine course
+  # --------------------------------------------------
+  pred_mean <- as.numeric(
+    predict(best_model, newdata = future_race, re.form = NULL, allow.new.levels = TRUE)
+  )
+  
+  # ---------------------------------
+  # 6. Les composantes de la variance
+  # ---------------------------------
+  fixed_form_full <- nobars(formula(best_model))
+  fixed_form_rhs  <- delete.response(terms(fixed_form_full))
+  
+ 
+  X_new <- model.matrix(fixed_form_rhs, future_race)
+  Vbeta <- as.matrix(vcov(best_model))
+  
+  # A. Variance des effets fixe et de la patinoire
+  var_fixed <- as.numeric(diag(X_new %*% Vbeta %*% t(X_new)))
+  
+  vc <- VarCorr(best_model)
+  tau_loc2 <- as.numeric(vc$location[1,1])
+  
+  re_loc <- ranef(best_model, condVar = TRUE)$location
+  pv_loc <- attr(re_loc, "postVar")
+  loc_lvls <- rownames(re_loc)
+  loc_chr <- as.character(future_race$location)
+  
+  var_loc <- vapply(loc_chr, function(l) {
+    if (l %in% loc_lvls) pv_loc[1,1, which(loc_lvls == l)] else tau_loc2
+  }, numeric(1))
+  
+  # B. Variance specific au patineur
+  tau_sk2  <- as.numeric(vc$skater_name[1,1])
+  re_sk  <- ranef(best_model, condVar = TRUE)$skater_name
+  pv_sk  <- attr(re_sk, "postVar")
+  sk_lvls <- rownames(re_sk)
+  sk_chr  <- as.character(future_race$skater_name)
+  
+  var_sk <- vapply(sk_chr, function(s) {
+    if (s %in% sk_lvls) pv_sk[1,1, which(sk_lvls == s)] else tau_sk2
+  }, numeric(1))
+  
+  # C. Variance residuelle
+  sig2 <- sigma(best_model)^2
+  
+  # --------------------------------------
+  # 7. Prediction de l'intervalle du temps
+  # --------------------------------------
+  var_pred_total <- var_fixed + var_sk + var_loc + sig2
+  se_pred_total  <- sqrt(pmax(var_pred_total, 0))
+  
+  alpha <- 1 - pi_level
+  z <- qnorm(1 - alpha/2)
+  PI_low  <- pred_mean - z * se_pred_total
+  PI_high <- pred_mean + z * se_pred_total
+  
+  # -------------------------
+  # 8. Simulation Monte Carlo 
+  # -------------------------
+  
+  # Fait une simulation des resultats possible des patineurs et calcul la probabilite d'obtenir une medaille.
+  # L'intervalle de confiance des temps est differente de l'interval utilise pour les medailles.
+  # L'intervalle pour la medaille = variance du patineur + variance residuelle.
+  # L'intervalle pour le temps = variance du patineur + variance de la nouvelle patinoire +variance residuelle
+  
+  se_sim <- sqrt(var_sk + sig2)
+  n_skaters <- nrow(future_race)
+  
+  means_mat <- matrix(pred_mean, nrow = n_skaters, ncol = n_sims, byrow = FALSE)
+  sds_mat_sim <- matrix(se_sim, nrow = n_skaters, ncol = n_sims, byrow = FALSE)
+  
+  sim_times <- matrix(rnorm(n_skaters * n_sims, mean = means_mat, sd = sds_mat_sim),
+                      nrow = n_skaters, ncol = n_sims)
+  
+  sim_ranks <- apply(sim_times, 2, rank, ties.method = "random")
+  
+  prob_gold  <- rowSums(sim_ranks == 1) / n_sims
+  prob_medal <- rowSums(sim_ranks <= 3) / n_sims
+  
+  # -----------------------
+  # 9. Output
+  # -----------------------
+  future_race$Predicted_Time <- pred_mean
+  future_race$Predicted_Rank <- rank(future_race$Predicted_Time, ties.method = "average")
+  future_race$Model_Sigma    <- sigma(best_model)
+  future_race$PI_Lower       <- PI_low
+  future_race$PI_Upper       <- PI_high
+  future_race$Prob_Gold      <- round(prob_gold, 4)
+  future_race$Prob_Medal     <- round(prob_medal, 4)
+  
+  final_output <- future_race %>%
+    select(Predicted_Rank, skater_name, country, Predicted_Time, PI_Lower, PI_Upper, Prob_Gold, Prob_Medal) %>%
+    arrange(Predicted_Rank)
+  
+  return(list(
+    predictions = final_output,
+    model_info  = list(k = best_k, sigma = min_sigma, venue = venue_name, n_sims = n_sims),
+    fit         = best_model
+  ))
+}
+```
+
+#### Prediction des patineurs
+
+```{r}
+prediction_500m_H <- Predict_Future_Olympics(
+  dist = 500,
+  gend = "M",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_500m_H
+
+```
+```{r}
+prediction_500m_H_can <- prediction_500m_H$predictions %>% filter(country == "CAN")
+prediction_500m_H_can
+```
+
+
+```{r}
+prediction_1000m_H <- Predict_Future_Olympics(
+  dist = 1000,
+  gend = "M",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_1000m_H
+```
+
+```{r}
+prediction_1000m_H_can <- prediction_1000m_H$predictions %>% filter(country == "CAN")
+prediction_1000m_H_can
+```
+
+
+```{r}
+prediction_1500m_H <- Predict_Future_Olympics(
+  dist = 1500,
+  gend = "M",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_1500m_H
+
+```
+
+
+```{r}
+prediction_1500m_H_can <- prediction_1500m_H$predictions %>% filter(country == "CAN")
+prediction_1500m_H_can
+```
+
+
+
+```{r}
+prediction_5000m_H <- Predict_Future_Olympics(
+  dist = 5000,
+  gend = "M",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_5000m_H
+```
+
+```{r}
+prediction_5000m_H_can <- prediction_5000m_H$predictions %>% filter(country == "CAN")
+prediction_5000m_H_can
+```
+
+
+```{r}
+prediction_10000m_H <- Predict_Future_Olympics(
+  dist = 10000,
+  gend = "M",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_10000m_H
+```
+
+
+```{r}
+prediction_10000m_H_can <- prediction_10000m_H$predictions %>% filter(country == "CAN")
+prediction_10000m_H_can
+```
+
+
+
+```{r}
+prediction_500m_W <- Predict_Future_Olympics(
+  dist = 500,
+  gend = "F",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_500m_W
+```
+
+```{r}
+prediction_500m_W_can <- prediction_500m_W$predictions %>% filter(country == "CAN")
+prediction_500m_W_can
+```
+
+```{r}
+prediction_1000m_W <- Predict_Future_Olympics(
+  dist = 1000,
+  gend = "F",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_1000m_W
+```
+
+
+```{r}
+prediction_1000m_W_can <- prediction_1000m_W$predictions %>% filter(country == "CAN")
+prediction_1000m_W_can
+```
+
+
+
+```{r}
+prediction_1500m_W <- Predict_Future_Olympics(
+  dist = 1500,
+  gend = "F",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_1500m_W
+```
+
+```{r}
+prediction_1500m_W_can <- prediction_1500m_W$predictions %>% filter(country == "CAN")
+prediction_1500m_W_can
+```
+
+
+```{r}
+prediction_3000m_W <- Predict_Future_Olympics(
+  dist = 3000,
+  gend = "F",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_3000m_W
+```
+
+```{r}
+prediction_3000m_W_can <- prediction_3000m_W$predictions %>% filter(country == "CAN")
+prediction_3000m_W_can
+```
+
+
+```{r}
+prediction_5000m_W <- Predict_Future_Olympics(
+  dist = 5000,
+  gend = "F",
+  dataset = donnees,
+  venue_name = "Milan (ITA)", 
+  pressure_assumption = 1013,   
+  top_n_skaters = 60            
+)
+prediction_5000m_W
+
+```
+
+```{r}
+prediction_5000m_W_can <- prediction_5000m_W$predictions %>% filter(country == "CAN")
+prediction_5000m_W_can
+```
+
+
+#### Graph des donnees
+
+Ajout, fonction vibe coded pour demontrer visuellement le poids des donnees dans le modele mixte. 
+
+```{r}
+
+library(dplyr)
+library(lme4)
+library(ggplot2)
+
+# --- Settings ---
+years_for_model <- 2  # Train on 6 years (better for model stability)
+years_to_plot   <- 2  # Visualize only the last 3 years
+
+# -----------------------
+# 1. Prepare Training Data
+# -----------------------
+train_data <- donnees %>%
+  filter(distance == 500, gender == "M") %>%
+  # Train on a slightly wider window so the model understands the skater's baseline
+  filter(date >= (Sys.Date() - 365.25 * years_for_model)) %>%
+  filter(!is.na(pressure_hpa), !is.na(time)) %>%
+  filter(abs(time - mean(time, na.rm = TRUE)) <= 1.5 * sd(time, na.rm = TRUE)) %>%
+  mutate(
+    skater_name = factor(skater_name),
+    location    = factor(location),
+    date        = as.Date(date),
+    days_diff   = as.numeric(Sys.Date() - date)
+  )
+
+# -----------------------
+# 2. Fit The Model
+# -----------------------
+best_k <- 0.005
+best_model <- NULL
+min_sigma <- Inf
+rate_grid <- seq(0.001, 0.01, length.out = 5)
+recency_w <- function(k, d) 2 / (1 + exp(k * d))
+
+for (k in rate_grid) {
+  tr <- train_data %>% mutate(w = recency_w(k, days_diff))
+  m <- try(lmer(time ~ pressure_hpa + (1 | skater_name) + (1 | location),
+                data = tr, weights = w, REML = TRUE,
+                control = lmerControl(optimizer = "bobyqa")), silent = TRUE)
+  if (!inherits(m, "try-error")) {
+    s <- sigma(m)
+    if (is.finite(s) && s < min_sigma) {
+      min_sigma <- s; best_model <- m; best_k <- k
+    }
+  }
+}
+
+if (is.null(best_model)) stop("Model failed to converge.")
+
+# -----------------------
+# 3. Calculate Weight Thresholds
+# -----------------------
+weight_breaks <- seq(0.1, 0.9, by = 0.1) 
+trust_dates <- data.frame(weight_val = weight_breaks) %>%
+  mutate(
+    days_ago = log(2/weight_val - 1) / best_k,
+    ref_date = Sys.Date() - days_ago,
+    label = paste0(weight_val * 100, "%"),
+    # Create a staggered height for labels to prevent overlapping
+    y_pos = ifelse(row_number() %% 2 == 0, 39.9, 39.6)
+  )
+
+# -----------------------
+# 4. Visualize (Strict Filter Applied Here)
+# -----------------------
+tr_final <- train_data %>% 
+  mutate(weight = recency_w(best_k, days_diff)) %>%
+  filter(skater_name == "Laurent Dubreuil") %>%
+  # *** FORCE FILTER FOR PLOT ***
+  filter(date >= (Sys.Date() - 365.25 * years_to_plot))
+
+# Filter lines to only show those inside our plot window
+plot_lines <- trust_dates %>% 
+  filter(ref_date >= min(tr_final$date))
+
+ggplot(tr_final, aes(x = date, y = time)) +
+  # A. Vertical Lines
+  geom_vline(data = plot_lines, aes(xintercept = ref_date), 
+             linetype = "dashed", color = "gray60", alpha = 0.5) +
+  
+  # B. Text Labels (Staggered Height)
+  geom_text(data = plot_lines, aes(x = ref_date, y = y_pos, label = label), 
+            color = "gray40", size = 3, angle = 90, vjust = -0.5) +
+  
+  # C. Data Points
+  geom_point(aes(size = weight, color = location), alpha = 0.7) +
+  
+  # D. Formatting
+  coord_cartesian(ylim = c(34, 40)) +
+  
+  scale_size_continuous(
+    range = c(2, 8), 
+    breaks = seq(0.1, 1.0, by = 0.1), 
+    name = "Model Trust"
+  ) +
+  
+  labs(title = paste("Race History: Laurent Dubreuil"),
+       subtitle = paste0("Event: 500m Men | Vertical Lines = Model Trust Levels (%)\n",
+                         "Dot Size based on Decay Rate (k=", round(best_k, 4), ")"),
+       y = "Race Time (seconds)", x = "Date") +
+  theme_minimal()
+```
+
