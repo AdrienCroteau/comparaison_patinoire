@@ -16,24 +16,26 @@ library(lme4)
 library(tidyr)
 library(dplyr)
 library(tibble)
+getwd()
 ```
 
 #### Preparation des donnees ISU
 
 import jeux de donnees
 ```{r, warning = FALSE}
-isu_2015_season <- read_excel("./comparaison_patinoire/isu_2015_season.xlsx")
-isu_2016_season <- read_excel("./comparaison_patinoire/isu_2016_season.xlsx")
-isu_2017_season <- read_excel("./comparaison_patinoire/isu_2017_season.xlsx")
-isu_2018_season <- read_excel("./comparaison_patinoire/isu_2018_season.xlsx")
-isu_2019_season <- read_excel("./comparaison_patinoire/isu_2019_season.xlsx")
-isu_2020_season <- read_excel("./comparaison_patinoire/isu_2020_season.xlsx")
-isu_2021_season <- read_excel("./comparaison_patinoire/isu_2021_season.xlsx")
-isu_2022_season <- read_excel("./comparaison_patinoire/isu_2022_season.xlsx")
-isu_2023_season <- read_excel("./comparaison_patinoire/isu_2023_season.xlsx")
-isu_2024_season <- read_excel("./comparaison_patinoire/isu_2024_season.xlsx")
-isu_2025_season <- read_excel("./comparaison_patinoire/isu_2025_season.xlsx")
-isu_2026_season <- read_excel("./comparaison_patinoire/isu_2026_season.xlsx")
+path <- getwd()
+isu_2015_season <- read_excel(paste0(path, "/isu_2015_season.xlsx"))
+isu_2016_season <- read_excel(paste0(path, "/isu_2016_season.xlsx"))
+isu_2017_season <- read_excel(paste0(path, "/isu_2017_season.xlsx"))
+isu_2018_season <- read_excel(paste0(path, "/isu_2018_season.xlsx"))
+isu_2019_season <- read_excel(paste0(path, "/isu_2019_season.xlsx"))
+isu_2020_season <- read_excel(paste0(path, "/isu_2020_season.xlsx"))
+isu_2021_season <- read_excel(paste0(path, "/isu_2021_season.xlsx"))
+isu_2022_season <- read_excel(paste0(path, "/isu_2022_season.xlsx"))
+isu_2023_season <- read_excel(paste0(path, "/isu_2023_season.xlsx"))
+isu_2024_season <- read_excel(paste0(path, "/isu_2024_season.xlsx"))
+isu_2025_season <- read_excel(paste0(path, "/isu_2025_season.xlsx"))
+isu_2026_season <- read_excel(paste0(path, "/isu_2026_season.xlsx"))
 ```
 
 joindre jeux de donnees
@@ -126,8 +128,8 @@ Pour la prediction, j'utilise les donnees de skating results, pour avoir le plus
 J'ai fait le moissonnage et ajouter la pression de l'air pour chaque competition possible.
 
 ```{r}
-donnees1 <- read_excel("./comparaison_patinoire/skating_results_with_geo_pressure_and_gender1.xlsx")
-donnees2 <- read_excel("./comparaison_patinoire/pythonProject333_2/skating_results_with_geo_pressure_and_gender2.xlsx")
+donnees1 <- read_excel(paste0(path, "/skating_results_with_geo_pressure_and_gender1.xlsx"))
+donnees2 <- read_excel(paste0(path, "/skating_results_with_geo_pressure_and_gender2.xlsx"))
 
 donnees <- rbind(donnees1, donnees2)
 
